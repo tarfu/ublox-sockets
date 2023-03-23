@@ -49,6 +49,7 @@ pub enum Error {
     SocketSetFull,
     InvalidSocket,
     DuplicateSocket,
+    Timeout
 }
 
 type Result<T> = core::result::Result<T, Error>;
