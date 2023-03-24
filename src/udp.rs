@@ -5,7 +5,7 @@ use embassy_time::{Duration, Instant};
 pub use no_std_net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 /// A UDP socket ring buffer.
-pub type SocketBuffer<const N: usize> = RingBuffer<u8, N>;
+pub type SocketBuffer<'a> = RingBuffer<'a, u8>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -25,21 +25,21 @@ impl Default for State {
 /// A UDP socket is bound to a specific endpoint, and owns transmit and receive
 /// packet buffers.
 #[derive(Debug)]
-pub struct UdpSocket<const L: usize> {
+pub struct UdpSocket<'a> {
     pub(crate) meta: SocketMeta,
     pub(crate) endpoint: Option<SocketAddr>,
     check_interval: Duration,
     read_timeout: Option<Duration>,
     state: State,
     available_data: usize,
-    rx_buffer: SocketBuffer<L>,
+    rx_buffer: SocketBuffer<'a>,
     last_check_time: Option<Instant>,
     closed_time: Option<Instant>,
 }
 
-impl<const L: usize> UdpSocket<L> {
+impl<'a> UdpSocket<'a> {
     /// Create an UDP socket with the given buffers.
-    pub fn new(socket_id: u8) -> UdpSocket<L> {
+    pub fn new(socket_id: u8, rx_buffer: impl Into<SocketBuffer<'a>>) -> UdpSocket<'a> {
         UdpSocket {
             meta: SocketMeta {
                 handle: SocketHandle(socket_id),
@@ -49,7 +49,7 @@ impl<const L: usize> UdpSocket<L> {
             read_timeout: Some(Duration::from_secs(15)),
             endpoint: None,
             available_data: 0,
-            rx_buffer: SocketBuffer::new(),
+            rx_buffer: rx_buffer.into(),
             last_check_time: None,
             closed_time: None,
         }
@@ -164,7 +164,7 @@ impl<const L: usize> UdpSocket<L> {
 
     fn recv_impl<'b, F, R>(&'b mut self, f: F) -> Result<R>
     where
-        F: FnOnce(&'b mut SocketBuffer<L>) -> (usize, R),
+        F: FnOnce(&'b mut SocketBuffer<'a>) -> (usize, R),
     {
         // We may have received some data inside the initial SYN, but until the connection
         // is fully open we must not dequeue any data, as it may be overwritten by e.g.
@@ -241,8 +241,8 @@ impl<const L: usize> defmt::Format for UdpSocket<L> {
     }
 }
 
-impl<const L: usize> Into<Socket<L>> for UdpSocket<L> {
-    fn into(self) -> Socket<L> {
+impl<'a> Into<Socket<'a>> for UdpSocket<'a> {
+    fn into(self) -> Socket<'a> {
         Socket::Udp(self)
     }
 }

@@ -3,7 +3,7 @@ use embassy_time::{Duration, Instant};
 use no_std_net::SocketAddr;
 
 /// A TCP socket ring buffer.
-pub type SocketBuffer<const N: usize> = RingBuffer<u8, N>;
+pub type SocketBuffer<'a> = RingBuffer<'a, u8>;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum State {
@@ -41,25 +41,25 @@ impl Default for State {
 /// accept several connections, as many sockets must be allocated, or any new connection
 /// attempts will be reset.
 #[derive(Debug)]
-pub struct TcpSocket<const L: usize> {
+pub struct TcpSocket<'a> {
     pub(crate) meta: SocketMeta,
     state: State,
     check_interval: Duration,
     read_timeout: Option<Duration>,
     available_data: usize,
-    rx_buffer: SocketBuffer<L>,
+    rx_buffer: SocketBuffer<'a>,
     last_check_time: Option<Instant>,
 }
 
-impl<const L: usize> TcpSocket<L> {
+impl<'a> TcpSocket<'a> {
     /// Create a socket using the given buffers.
-    pub fn new(socket_id: u8) -> TcpSocket<L> {
+    pub fn new(socket_id: u8, rx_buffer: impl Into<SocketBuffer<'a>>) -> TcpSocket<'a> {
         TcpSocket {
             meta: SocketMeta {
                 handle: SocketHandle(socket_id),
             },
             state: State::default(),
-            rx_buffer: SocketBuffer::new(),
+            rx_buffer: rx_buffer.into(),
             available_data: 0,
             check_interval: Duration::from_secs(15),
             read_timeout: Some(Duration::from_secs(15)),
@@ -192,7 +192,7 @@ impl<const L: usize> TcpSocket<L> {
 
     fn recv_impl<'b, F, R>(&'b mut self, f: F) -> Result<R>
     where
-        F: FnOnce(&'b mut SocketBuffer<L>) -> (usize, R),
+        F: FnOnce(&'b mut SocketBuffer<'a>) -> (usize, R),
     {
         // We may have received some data inside the initial SYN, but until the connection
         // is fully open we must not dequeue any data, as it may be overwritten by e.g.
@@ -301,8 +301,8 @@ impl<const L: usize> TcpSocket<L> {
     }
 }
 
-impl<const L: usize> Into<Socket<L>> for TcpSocket<L> {
-    fn into(self) -> Socket<L> {
+impl<'a> Into<Socket<'a>> for TcpSocket<'a> {
+    fn into(self) -> Socket<'a> {
         Socket::Tcp(self)
     }
 }

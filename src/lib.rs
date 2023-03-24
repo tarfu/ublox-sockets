@@ -49,7 +49,7 @@ pub enum Error {
     SocketSetFull,
     InvalidSocket,
     DuplicateSocket,
-    Timeout
+    Timeout,
 }
 
 type Result<T> = core::result::Result<T, Error>;
@@ -66,11 +66,11 @@ type Result<T> = core::result::Result<T, Error>;
 /// [SocketSet::get]: struct.SocketSet.html#method.get
 #[non_exhaustive]
 #[derive(Debug)]
-pub enum Socket<const L: usize> {
+pub enum Socket<'a> {
     #[cfg(feature = "socket-udp")]
-    Udp(UdpSocket<L>),
+    Udp(UdpSocket<'a>),
     #[cfg(feature = "socket-tcp")]
-    Tcp(TcpSocket<L>),
+    Tcp(TcpSocket<'a>),
 }
 
 #[non_exhaustive]
@@ -81,7 +81,7 @@ pub enum SocketType {
     Tcp,
 }
 
-impl<const L: usize> Socket<L> {
+impl<'a> Socket<'a> {
     /// Return the socket handle.
     #[inline]
     pub fn handle(&self) -> SocketHandle {
@@ -162,13 +162,13 @@ impl<const L: usize> Socket<L> {
 }
 
 /// A conversion trait for network sockets.
-pub trait AnySocket<const L: usize>: Sized {
-    fn downcast(socket_ref: SocketRef<'_, Socket<L>>) -> Result<SocketRef<'_, Self>>;
+pub trait AnySocket<'a>: Sized {
+    fn downcast(socket_ref: SocketRef<'_, Socket<'a>>) -> Result<SocketRef<'a, Self>>;
 }
 
 #[cfg(feature = "socket-tcp")]
-impl<const L: usize> AnySocket<L> for TcpSocket<L> {
-    fn downcast(ref_: SocketRef<'_, Socket<L>>) -> Result<SocketRef<'_, Self>> {
+impl<'a> AnySocket<'a> for TcpSocket<'a> {
+    fn downcast(ref_: SocketRef<'_, Socket<'a>>) -> Result<SocketRef<'a, Self>> {
         match SocketRef::into_inner(ref_) {
             Socket::Tcp(ref mut socket) => Ok(SocketRef::new(socket)),
             _ => Err(Error::Illegal),
@@ -177,8 +177,8 @@ impl<const L: usize> AnySocket<L> for TcpSocket<L> {
 }
 
 #[cfg(feature = "socket-udp")]
-impl<const L: usize> AnySocket<L> for UdpSocket<L> {
-    fn downcast(ref_: SocketRef<'_, Socket<L>>) -> Result<SocketRef<'_, Self>> {
+impl<'a> AnySocket<'a> for UdpSocket<'a> {
+    fn downcast(ref_: SocketRef<'_, Socket<'a>>) -> Result<SocketRef<'a, Self>> {
         match SocketRef::into_inner(ref_) {
             Socket::Udp(ref mut socket) => Ok(SocketRef::new(socket)),
             _ => Err(Error::Illegal),
