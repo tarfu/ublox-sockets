@@ -1,6 +1,6 @@
 use core::cmp::min;
 
-use super::{Error, Result, RingBuffer, Socket, SocketHandle, SocketMeta};
+use super::{Error, Result, RingBuffer, SocketHandle};
 use embassy_time::{Duration, Instant};
 pub use no_std_net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
@@ -25,8 +25,8 @@ impl Default for State {
 /// A UDP socket is bound to a specific endpoint, and owns transmit and receive
 /// packet buffers.
 #[derive(Debug)]
-pub struct UdpSocket<'a> {
-    pub(crate) meta: SocketMeta,
+pub struct Socket<'a> {
+    pub(crate) handle: SocketHandle,
     pub(crate) endpoint: Option<SocketAddr>,
     check_interval: Duration,
     read_timeout: Option<Duration>,
@@ -35,15 +35,18 @@ pub struct UdpSocket<'a> {
     rx_buffer: SocketBuffer<'a>,
     last_check_time: Option<Instant>,
     closed_time: Option<Instant>,
+
+    #[cfg(feature = "async")]
+    rx_waker: crate::waker::WakerRegistration,
+    #[cfg(feature = "async")]
+    tx_waker: crate::waker::WakerRegistration,
 }
 
-impl<'a> UdpSocket<'a> {
+impl<'a> Socket<'a> {
     /// Create an UDP socket with the given buffers.
-    pub fn new(socket_id: u8, rx_buffer: impl Into<SocketBuffer<'a>>) -> UdpSocket<'a> {
-        UdpSocket {
-            meta: SocketMeta {
-                handle: SocketHandle(socket_id),
-            },
+    pub fn new(socket_id: u8, rx_buffer: impl Into<SocketBuffer<'a>>) -> Socket<'a> {
+        Socket {
+            handle: SocketHandle(socket_id),
             check_interval: Duration::from_secs(15),
             state: State::Closed,
             read_timeout: Some(Duration::from_secs(15)),
@@ -52,12 +55,16 @@ impl<'a> UdpSocket<'a> {
             rx_buffer: rx_buffer.into(),
             last_check_time: None,
             closed_time: None,
+            #[cfg(feature = "async")]
+            rx_waker: crate::waker::WakerRegistration::new(),
+            #[cfg(feature = "async")]
+            tx_waker: crate::waker::WakerRegistration::new(),
         }
     }
 
     /// Return the socket handle.
     pub fn handle(&self) -> SocketHandle {
-        self.meta.handle
+        self.handle
     }
 
     pub fn update_handle(&mut self, handle: SocketHandle) {
@@ -66,7 +73,42 @@ impl<'a> UdpSocket<'a> {
             self.handle(),
             handle
         );
-        self.meta.update(handle)
+        self.handle = handle;
+    }
+
+    /// Register a waker for receive operations.
+    ///
+    /// The waker is woken on state changes that might affect the return value
+    /// of `recv` method calls, such as receiving data, or the socket closing.
+    ///
+    /// Notes:
+    ///
+    /// - Only one waker can be registered at a time. If another waker was previously registered,
+    ///   it is overwritten and will no longer be woken.
+    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
+    /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `recv` has
+    ///   necessarily changed.
+    #[cfg(feature = "async")]
+    pub fn register_recv_waker(&mut self, waker: &core::task::Waker) {
+        self.rx_waker.register(waker)
+    }
+
+    /// Register a waker for send operations.
+    ///
+    /// The waker is woken on state changes that might affect the return value
+    /// of `send` method calls, such as space becoming available in the transmit
+    /// buffer, or the socket closing.
+    ///
+    /// Notes:
+    ///
+    /// - Only one waker can be registered at a time. If another waker was previously registered,
+    ///   it is overwritten and will no longer be woken.
+    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
+    /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `send` has
+    ///   necessarily changed.
+    #[cfg(feature = "async")]
+    pub fn register_send_waker(&mut self, waker: &core::task::Waker) {
+        self.tx_waker.register(waker)
     }
 
     /// Return the bound endpoint.
@@ -137,6 +179,13 @@ impl<'a> UdpSocket<'a> {
         }
 
         self.endpoint.replace(endpoint.into());
+
+        #[cfg(feature = "async")]
+        {
+            self.rx_waker.wake();
+            self.tx_waker.wake();
+        }
+
         Ok(())
     }
 
@@ -231,18 +280,17 @@ impl<'a> UdpSocket<'a> {
 
     pub fn close(&mut self) {
         self.endpoint.take();
+        #[cfg(feature = "async")]
+        {
+            self.rx_waker.wake();
+            self.tx_waker.wake();
+        }
     }
 }
 
 #[cfg(feature = "defmt")]
-impl<const L: usize> defmt::Format for UdpSocket<L> {
+impl<const L: usize> defmt::Format for Socket<L> {
     fn format(&self, fmt: defmt::Formatter) {
         defmt::write!(fmt, "[{:?}, {:?}],", self.handle(), self.state())
-    }
-}
-
-impl<'a> Into<Socket<'a>> for UdpSocket<'a> {
-    fn into(self) -> Socket<'a> {
-        Socket::Udp(self)
     }
 }

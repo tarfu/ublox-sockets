@@ -1,4 +1,4 @@
-use super::{AnySocket, Error, Result, Socket, SocketRef, SocketType};
+use super::{AnySocket, Error, Result, Socket, SocketType};
 use atat::atat_derive::AtatLen;
 use serde::{Deserialize, Serialize};
 
@@ -71,9 +71,9 @@ impl<'a> Set<'a> {
     /// Add a socket to the set with the reference count 1, and return its handle.
     pub fn add<T>(&mut self, socket: T) -> Result<Handle>
     where
-        T: Into<Socket<'a>>,
+        T: AnySocket<'a>,
     {
-        let socket = socket.into();
+        let socket = socket.upcast();
         let handle = socket.handle();
 
         debug!(
@@ -98,7 +98,7 @@ impl<'a> Set<'a> {
     }
 
     /// Get a socket from the set by its handle, as mutable.
-    pub fn get<T: AnySocket<'a>>(&mut self, handle: Handle) -> Result<SocketRef<T>> {
+    pub fn get<T: AnySocket<'a>>(&mut self, handle: Handle) -> Result<&T> {
         let index = self.index_of(handle)?;
 
         match self
@@ -107,7 +107,7 @@ impl<'a> Set<'a> {
             .ok_or(Error::InvalidSocket)?
             .inner
         {
-            Some(ref mut socket) => Ok(T::downcast(SocketRef::new(socket))?),
+            Some(ref socket) => T::downcast(socket).ok_or(Error::InvalidSocket),
             None => Err(Error::InvalidSocket),
         }
     }
@@ -162,24 +162,12 @@ impl<'a> Set<'a> {
 
     /// Iterate every socket in this set.
     pub fn iter(&self) -> impl Iterator<Item = (Handle, &Socket<'a>)> {
-        self.sockets.iter().filter_map(|slot| {
-            if let Some(ref socket) = slot.inner {
-                Some((Handle(socket.handle().0), socket))
-            } else {
-                None
-            }
-        })
+        self.items().map(|i| (i.handle(), i))
     }
 
     /// Iterate every socket in this set, as SocketRef.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (Handle, SocketRef<Socket<'a>>)> {
-        self.sockets.iter_mut().filter_map(|slot| {
-            if let Some(ref mut socket) = slot.inner {
-                Some((Handle(socket.handle().0), SocketRef::new(socket)))
-            } else {
-                None
-            }
-        })
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (Handle, &mut Socket<'a>)> {
+        self.items_mut().map(|i| (i.handle(), i))
     }
 
     /// Iterate every socket in this set.
@@ -210,97 +198,168 @@ impl<const N: usize, const L: usize> defmt::Format for Set<N, L> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{TcpSocket, UdpSocket};
+    use crate::{tcp, udp};
 
     #[test]
     fn add_socket() {
-        let sockets = [SocketStorage::EMPTY; 2];
-        let mut set = Set::new(&sockets);
+        let mut sockets = [SocketStorage::EMPTY; 2];
+        let mut set = Set::new(&mut sockets);
 
-        let rx_buf = &[0u8; 512];
+        let mut tcp_rx_buf = [0u8; 64];
+        let mut udp_rx_buf = [0u8; 48];
 
-        assert_eq!(set.add(TcpSocket::new(0, rx_buf)), Ok(Handle(0)));
+        assert_eq!(
+            set.add(tcp::Socket::new(0, &mut tcp_rx_buf[..])),
+            Ok(Handle(0))
+        );
         assert_eq!(set.len(), 1);
-        assert_eq!(set.add(UdpSocket::new(1)), Ok(Handle(1)));
+        assert_eq!(
+            set.add(udp::Socket::new(1, &mut udp_rx_buf[..])),
+            Ok(Handle(1))
+        );
         assert_eq!(set.len(), 2);
     }
 
     #[test]
     fn remove_socket() {
-        let mut set = Set::<2, 64>::new();
+        let mut sockets = [SocketStorage::EMPTY; 2];
+        let mut set = Set::new(&mut sockets);
 
-        assert_eq!(set.add(TcpSocket::new(0)), Ok(Handle(0)));
+        let mut tcp_rx_buf = [0u8; 64];
+        let mut udp_rx_buf = [0u8; 48];
+
+        assert_eq!(
+            set.add(tcp::Socket::new(0, &mut tcp_rx_buf[..])),
+            Ok(Handle(0))
+        );
         assert_eq!(set.len(), 1);
-        assert_eq!(set.add(UdpSocket::new(1)), Ok(Handle(1)));
+        assert_eq!(
+            set.add(udp::Socket::new(1, &mut udp_rx_buf[..])),
+            Ok(Handle(1))
+        );
         assert_eq!(set.len(), 2);
 
         assert!(set.remove(Handle(0)).is_ok());
         assert_eq!(set.len(), 1);
 
-        assert!(set.get::<TcpSocket<64>>(Handle(0)).is_err());
+        assert!(set.get::<tcp::Socket>(Handle(0)).is_err());
 
-        set.get::<UdpSocket<64>>(Handle(1))
+        set.get::<udp::Socket>(Handle(1))
             .expect("failed to get udp socket");
     }
 
     #[test]
     fn add_duplicate_socket() {
-        let mut set = Set::<2, 64>::new();
+        let mut sockets = [SocketStorage::EMPTY; 2];
+        let mut set = Set::new(&mut sockets);
 
-        assert_eq!(set.add(TcpSocket::new(0)), Ok(Handle(0)));
+        let mut tcp_rx_buf = [0u8; 64];
+        let mut udp_rx_buf = [0u8; 48];
+
+        assert_eq!(
+            set.add(tcp::Socket::new(0, &mut tcp_rx_buf[..])),
+            Ok(Handle(0))
+        );
         assert_eq!(set.len(), 1);
-        assert_eq!(set.add(UdpSocket::new(0)), Err(Error::DuplicateSocket));
+        assert_eq!(
+            set.add(udp::Socket::new(0, &mut udp_rx_buf[..])),
+            Err(Error::DuplicateSocket)
+        );
     }
 
     #[test]
     fn add_socket_to_full_set() {
-        let mut set = Set::<2, 64>::new();
+        let mut sockets = [SocketStorage::EMPTY; 2];
+        let mut set = Set::new(&mut sockets);
 
-        assert_eq!(set.add(TcpSocket::new(0)), Ok(Handle(0)));
+        let mut tcp_rx_buf = [0u8; 64];
+        let mut udp_rx_buf = [0u8; 48];
+        let mut udp_rx_buf2 = [0u8; 48];
+
+        assert_eq!(
+            set.add(tcp::Socket::new(0, &mut tcp_rx_buf[..])),
+            Ok(Handle(0))
+        );
         assert_eq!(set.len(), 1);
-        assert_eq!(set.add(UdpSocket::new(1)), Ok(Handle(1)));
+        assert_eq!(
+            set.add(udp::Socket::new(1, &mut udp_rx_buf[..])),
+            Ok(Handle(1))
+        );
         assert_eq!(set.len(), 2);
-        assert_eq!(set.add(UdpSocket::new(2)), Err(Error::SocketSetFull));
+        assert_eq!(
+            set.add(udp::Socket::new(2, &mut udp_rx_buf2[..])),
+            Err(Error::SocketSetFull)
+        );
     }
 
     #[test]
     fn get_socket() {
-        let mut set = Set::<2, 64>::new();
+        let mut sockets = [SocketStorage::EMPTY; 2];
+        let mut set = Set::new(&mut sockets);
 
-        assert_eq!(set.add(TcpSocket::new(0)), Ok(Handle(0)));
+        let mut tcp_rx_buf = [0u8; 64];
+        let mut udp_rx_buf = [0u8; 48];
+
+        assert_eq!(
+            set.add(tcp::Socket::new(0, &mut tcp_rx_buf[..])),
+            Ok(Handle(0))
+        );
         assert_eq!(set.len(), 1);
-        assert_eq!(set.add(UdpSocket::new(1)), Ok(Handle(1)));
+        assert_eq!(
+            set.add(udp::Socket::new(1, &mut udp_rx_buf[..])),
+            Ok(Handle(1))
+        );
         assert_eq!(set.len(), 2);
 
-        set.get::<TcpSocket<64>>(Handle(0))
+        set.get::<tcp::Socket>(Handle(0))
             .expect("failed to get tcp socket");
 
-        set.get::<UdpSocket<64>>(Handle(1))
+        set.get::<udp::Socket>(Handle(1))
             .expect("failed to get udp socket");
     }
 
     #[test]
     fn get_socket_wrong_type() {
-        let mut set = Set::<2, 64>::new();
+        let mut sockets = [SocketStorage::EMPTY; 2];
+        let mut set = Set::new(&mut sockets);
 
-        assert_eq!(set.add(TcpSocket::new(0)), Ok(Handle(0)));
+        let mut tcp_rx_buf = [0u8; 64];
+        let mut udp_rx_buf = [0u8; 48];
+
+        assert_eq!(
+            set.add(tcp::Socket::new(0, &mut tcp_rx_buf[..])),
+            Ok(Handle(0))
+        );
         assert_eq!(set.len(), 1);
-        assert_eq!(set.add(UdpSocket::new(1)), Ok(Handle(1)));
+        assert_eq!(
+            set.add(udp::Socket::new(1, &mut udp_rx_buf[..])),
+            Ok(Handle(1))
+        );
         assert_eq!(set.len(), 2);
 
-        assert!(set.get::<TcpSocket<64>>(Handle(1)).is_err());
+        assert!(set.get::<tcp::Socket>(Handle(1)).is_err());
 
-        set.get::<UdpSocket<64>>(Handle(1))
+        set.get::<udp::Socket>(Handle(1))
             .expect("failed to get udp socket");
     }
 
     #[test]
     fn get_socket_type() {
-        let mut set = Set::<2, 64>::new();
+        let mut sockets = [SocketStorage::EMPTY; 2];
+        let mut set = Set::new(&mut sockets);
 
-        assert_eq!(set.add(TcpSocket::new(0)), Ok(Handle(0)));
+        let mut tcp_rx_buf = [0u8; 64];
+        let mut udp_rx_buf = [0u8; 48];
+
+        assert_eq!(
+            set.add(tcp::Socket::new(0, &mut tcp_rx_buf[..])),
+            Ok(Handle(0))
+        );
         assert_eq!(set.len(), 1);
-        assert_eq!(set.add(UdpSocket::new(1)), Ok(Handle(1)));
+        assert_eq!(
+            set.add(udp::Socket::new(1, &mut udp_rx_buf[..])),
+            Ok(Handle(1))
+        );
         assert_eq!(set.len(), 2);
 
         assert_eq!(set.socket_type(Handle(0)), Some(SocketType::Tcp));
@@ -309,38 +368,62 @@ mod tests {
 
     #[test]
     fn replace_socket() {
-        let mut set = Set::<2, 64>::new();
+        let mut sockets = [SocketStorage::EMPTY; 2];
+        let mut set = Set::new(&mut sockets);
 
-        assert_eq!(set.add(TcpSocket::new(0)), Ok(Handle(0)));
+        let mut tcp_rx_buf = [0u8; 64];
+        let mut tcp_rx_buf2 = [0u8; 64];
+        let mut udp_rx_buf = [0u8; 48];
+
+        assert_eq!(
+            set.add(tcp::Socket::new(0, &mut tcp_rx_buf[..])),
+            Ok(Handle(0))
+        );
         assert_eq!(set.len(), 1);
-        assert_eq!(set.add(UdpSocket::new(1)), Ok(Handle(1)));
+        assert_eq!(
+            set.add(udp::Socket::new(1, &mut udp_rx_buf[..])),
+            Ok(Handle(1))
+        );
         assert_eq!(set.len(), 2);
 
         assert!(set.remove(Handle(0)).is_ok());
         assert_eq!(set.len(), 1);
 
-        assert!(set.get::<TcpSocket<64>>(Handle(0)).is_err());
+        assert!(set.get::<tcp::Socket>(Handle(0)).is_err());
 
-        set.get::<UdpSocket<64>>(Handle(1))
+        set.get::<udp::Socket>(Handle(1))
             .expect("failed to get udp socket");
 
-        assert_eq!(set.add(TcpSocket::new(0)), Ok(Handle(0)));
+        assert_eq!(
+            set.add(tcp::Socket::new(0, &mut tcp_rx_buf2[..])),
+            Ok(Handle(0))
+        );
         assert_eq!(set.len(), 2);
 
-        set.get::<TcpSocket<64>>(Handle(0))
+        set.get::<tcp::Socket>(Handle(0))
             .expect("failed to get tcp socket");
     }
 
     #[test]
     fn prune_socket_set() {
-        let mut set = Set::<2, 64>::new();
+        let mut sockets = [SocketStorage::EMPTY; 2];
+        let mut set = Set::new(&mut sockets);
 
-        assert_eq!(set.add(TcpSocket::new(0)), Ok(Handle(0)));
+        let mut tcp_rx_buf = [0u8; 64];
+        let mut udp_rx_buf = [0u8; 48];
+
+        assert_eq!(
+            set.add(tcp::Socket::new(0, &mut tcp_rx_buf[..])),
+            Ok(Handle(0))
+        );
         assert_eq!(set.len(), 1);
-        assert_eq!(set.add(UdpSocket::new(1)), Ok(Handle(1)));
+        assert_eq!(
+            set.add(udp::Socket::new(1, &mut udp_rx_buf[..])),
+            Ok(Handle(1))
+        );
         assert_eq!(set.len(), 2);
 
-        set.get::<TcpSocket<64>>(Handle(0))
+        set.get::<tcp::Socket>(Handle(0))
             .expect("failed to get tcp socket");
 
         set.prune();

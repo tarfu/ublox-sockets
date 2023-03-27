@@ -3,8 +3,6 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-mod meta;
-mod ref_;
 mod ring_buffer;
 mod set;
 pub mod tcp;
@@ -12,18 +10,18 @@ pub mod tcp_listener;
 pub mod udp;
 pub mod udp_listener;
 
-pub(crate) use self::meta::Meta as SocketMeta;
+#[cfg(feature = "async")]
+mod waker;
+
 pub use self::ring_buffer::RingBuffer;
 
 #[cfg(feature = "socket-tcp")]
-pub use tcp::{State as TcpState, TcpSocket};
+pub use tcp::{Socket as TcpSocket, State as TcpState};
 
 #[cfg(feature = "socket-udp")]
-pub use udp::{State as UdpState, UdpSocket};
+pub use udp::{Socket as UdpSocket, State as UdpState};
 
 pub use self::set::{Handle as SocketHandle, Set as SocketSet};
-
-pub use self::ref_::Ref as SocketRef;
 
 /// The error type for the networking stack.
 #[non_exhaustive]
@@ -85,15 +83,11 @@ impl<'a> Socket<'a> {
     /// Return the socket handle.
     #[inline]
     pub fn handle(&self) -> SocketHandle {
-        self.meta().handle
-    }
-
-    pub(crate) fn meta(&self) -> &SocketMeta {
         match self {
             #[cfg(feature = "socket-udp")]
-            Socket::Udp(ref socket) => &socket.meta,
+            Socket::Udp(ref socket) => socket.handle(),
             #[cfg(feature = "socket-tcp")]
-            Socket::Tcp(ref socket) => &socket.meta,
+            Socket::Tcp(ref socket) => socket.handle(),
         }
     }
 
@@ -162,29 +156,46 @@ impl<'a> Socket<'a> {
 }
 
 /// A conversion trait for network sockets.
-pub trait AnySocket<'a>: Sized {
-    fn downcast(socket_ref: SocketRef<'_, Socket<'a>>) -> Result<SocketRef<'a, Self>>;
+pub trait AnySocket<'a> {
+    fn upcast(self) -> Socket<'a>;
+    fn downcast<'c>(socket: &'c Socket<'a>) -> Option<&'c Self>
+    where
+        Self: Sized;
+    fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self>
+    where
+        Self: Sized;
 }
 
-#[cfg(feature = "socket-tcp")]
-impl<'a> AnySocket<'a> for TcpSocket<'a> {
-    fn downcast(ref_: SocketRef<'_, Socket<'a>>) -> Result<SocketRef<'a, Self>> {
-        match SocketRef::into_inner(ref_) {
-            Socket::Tcp(ref mut socket) => Ok(SocketRef::new(socket)),
-            _ => Err(Error::Illegal),
+macro_rules! from_socket {
+    ($socket:ty, $variant:ident) => {
+        impl<'a> AnySocket<'a> for $socket {
+            fn upcast(self) -> Socket<'a> {
+                Socket::$variant(self)
+            }
+
+            fn downcast<'c>(socket: &'c Socket<'a>) -> Option<&'c Self> {
+                #[allow(unreachable_patterns)]
+                match socket {
+                    Socket::$variant(socket) => Some(socket),
+                    _ => None,
+                }
+            }
+
+            fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self> {
+                #[allow(unreachable_patterns)]
+                match socket {
+                    Socket::$variant(socket) => Some(socket),
+                    _ => None,
+                }
+            }
         }
-    }
+    };
 }
 
 #[cfg(feature = "socket-udp")]
-impl<'a> AnySocket<'a> for UdpSocket<'a> {
-    fn downcast(ref_: SocketRef<'_, Socket<'a>>) -> Result<SocketRef<'a, Self>> {
-        match SocketRef::into_inner(ref_) {
-            Socket::Udp(ref mut socket) => Ok(SocketRef::new(socket)),
-            _ => Err(Error::Illegal),
-        }
-    }
-}
+from_socket!(udp::Socket<'a>, Udp);
+#[cfg(feature = "socket-tcp")]
+from_socket!(tcp::Socket<'a>, Tcp);
 
 #[cfg(test)]
 #[cfg(feature = "defmt")]
