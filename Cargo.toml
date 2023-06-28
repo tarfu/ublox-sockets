@@ -16,7 +16,7 @@ documentation = "https://docs.rs/ublox-sockets"
 [dependencies]
 serde = { version = "^1", default-features = false, features = ["derive"] }
 heapless = { version = "^0.7", features = ["serde"] }
-no-std-net = { version = "^0.5", features = ["serde"] }
+no-std-net = { version = "0.6", features = ["serde"] }
 atat = { version = "0.18", features = ["derive"] }
 hash32 = "0.2.1"
 hash32-derive = "^0.1.0"
@@ -26,9 +26,16 @@ log = { version = "^0.4", default-features = false, optional = true }
 defmt = { version = "^0.3", optional = true }
 
 [features]
-default = ["socket-udp", "socket-tcp"]
+default = ["socket-udp", "socket-tcp", "defmt"]
 
 async = []
 
+defmt = ["dep:defmt", "embassy-time/defmt"]
+
+edm = []
+
 socket-tcp = []
 socket-udp = []
+
+[patch.crates-io]
+no-std-net = { path = "../no-std-net" }

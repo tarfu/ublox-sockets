@@ -3,6 +3,7 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+mod meta;
 mod ring_buffer;
 mod set;
 pub mod tcp;
@@ -21,7 +22,10 @@ pub use tcp::{Socket as TcpSocket, State as TcpState};
 #[cfg(feature = "socket-udp")]
 pub use udp::{Socket as UdpSocket, State as UdpState};
 
-pub use self::set::{Handle as SocketHandle, Set as SocketSet};
+pub use self::set::{PeerHandle, SocketHandle, SocketSet, SocketStorage};
+
+#[cfg(feature = "edm")]
+pub use self::set::ChannelId;
 
 /// The error type for the networking stack.
 #[non_exhaustive]
@@ -36,6 +40,7 @@ pub enum Error {
     /// E.g. there was no an Ethernet address corresponding to an IPv4 address in the ARP cache,
     /// or a TCP connection attempt was made to an unspecified endpoint.
     Unaddressable,
+    InvalidState,
 
     SocketClosed,
     BadLength,
@@ -69,90 +74,6 @@ pub enum Socket<'a> {
     Udp(UdpSocket<'a>),
     #[cfg(feature = "socket-tcp")]
     Tcp(TcpSocket<'a>),
-}
-
-#[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum SocketType {
-    Udp,
-    Tcp,
-}
-
-impl<'a> Socket<'a> {
-    /// Return the socket handle.
-    #[inline]
-    pub fn handle(&self) -> SocketHandle {
-        match self {
-            #[cfg(feature = "socket-udp")]
-            Socket::Udp(ref socket) => socket.handle(),
-            #[cfg(feature = "socket-tcp")]
-            Socket::Tcp(ref socket) => socket.handle(),
-        }
-    }
-
-    pub fn get_type(&self) -> SocketType {
-        match self {
-            Socket::Tcp(_) => SocketType::Tcp,
-            Socket::Udp(_) => SocketType::Udp,
-        }
-    }
-
-    pub fn should_update_available_data(&mut self) -> bool {
-        match self {
-            Socket::Tcp(s) => s.should_update_available_data(),
-            Socket::Udp(s) => s.should_update_available_data(),
-        }
-    }
-
-    pub fn available_data(&self) -> usize {
-        match self {
-            Socket::Tcp(s) => s.get_available_data(),
-            Socket::Udp(s) => s.get_available_data(),
-        }
-    }
-
-    pub fn recycle(&self) -> bool {
-        match self {
-            Socket::Tcp(s) => s.recycle(),
-            Socket::Udp(s) => s.recycle(),
-        }
-    }
-
-    pub fn closed_by_remote(&mut self) {
-        match self {
-            Socket::Tcp(s) => s.closed_by_remote(),
-            Socket::Udp(s) => s.closed_by_remote(),
-        }
-    }
-
-    pub fn set_available_data(&mut self, available_data: usize) {
-        match self {
-            Socket::Tcp(s) => s.set_available_data(available_data),
-            Socket::Udp(s) => s.set_available_data(available_data),
-        }
-    }
-
-    pub fn rx_enqueue_slice(&mut self, data: &[u8]) -> usize {
-        match self {
-            Socket::Tcp(s) => s.rx_enqueue_slice(data),
-            Socket::Udp(s) => s.rx_enqueue_slice(data),
-        }
-    }
-
-    pub fn rx_window(&self) -> usize {
-        match self {
-            Socket::Tcp(s) => s.rx_window(),
-            Socket::Udp(s) => s.rx_window(),
-        }
-    }
-
-    pub fn can_recv(&self) -> bool {
-        match self {
-            Socket::Tcp(s) => s.can_recv(),
-            Socket::Udp(s) => s.can_recv(),
-        }
-    }
 }
 
 /// A conversion trait for network sockets.
@@ -196,30 +117,3 @@ macro_rules! from_socket {
 from_socket!(udp::Socket<'a>, Udp);
 #[cfg(feature = "socket-tcp")]
 from_socket!(tcp::Socket<'a>, Tcp);
-
-#[cfg(test)]
-#[cfg(feature = "defmt")]
-mod test_helpers {
-    use core::ptr::NonNull;
-
-    #[defmt::global_logger]
-    struct Logger;
-    impl defmt::Write for Logger {
-        fn write(&mut self, _bytes: &[u8]) {}
-    }
-
-    unsafe impl defmt::Logger for Logger {
-        fn acquire() -> Option<NonNull<dyn defmt::Write>> {
-            Some(NonNull::from(&Logger as &dyn defmt::Write))
-        }
-
-        unsafe fn release(_: NonNull<dyn defmt::Write>) {}
-    }
-
-    defmt::timestamp!("");
-
-    #[export_name = "_defmt_panic"]
-    fn panic() -> ! {
-        panic!()
-    }
-}

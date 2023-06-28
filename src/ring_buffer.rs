@@ -234,6 +234,31 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
         (size, result)
     }
 
+    /// Call `f` with the largest contiguous slice of allocated buffer elements,
+    /// and dequeue the amount of elements returned by `f`.
+    ///
+    /// # Panics
+    /// This function panics if the amount of elements returned by `f` is larger
+    /// than the size of the slice passed into it.
+    #[cfg(feature = "async")]
+    pub async fn async_dequeue_many_with<'b, R, F, FUT>(&'b mut self, f: F) -> (usize, R)
+    where
+        F: FnOnce(&'b mut [T]) -> FUT,
+        FUT: core::future::Future<Output = (usize, R)>,
+    {
+        let capacity = self.capacity();
+        let max_size = cmp::min(self.len(), capacity - self.read_at);
+        let (size, result) = f(&mut self.storage[self.read_at..self.read_at + max_size]).await;
+        assert!(size <= max_size);
+        self.read_at = if capacity > 0 {
+            (self.read_at + size) % capacity
+        } else {
+            0
+        };
+        self.length -= size;
+        (size, result)
+    }
+
     pub fn dequeue_many_with_wrapping<'b, R, F>(&'b mut self, f: F) -> (usize, R)
     where
         F: FnOnce(&'b [T], Option<&'b [T]>) -> (usize, R),

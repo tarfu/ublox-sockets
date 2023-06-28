@@ -1,6 +1,6 @@
 use core::cmp::min;
 
-use super::{Error, Result, RingBuffer, SocketHandle};
+use super::{Error, Result, RingBuffer, PeerHandle};
 use embassy_time::{Duration, Instant};
 pub use no_std_net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
@@ -26,13 +26,14 @@ impl Default for State {
 /// packet buffers.
 #[derive(Debug)]
 pub struct Socket<'a> {
-    pub(crate) handle: SocketHandle,
+    pub(crate) device_handle: Option<PeerHandle>,
     pub(crate) endpoint: Option<SocketAddr>,
     check_interval: Duration,
     read_timeout: Option<Duration>,
     state: State,
     available_data: usize,
     rx_buffer: SocketBuffer<'a>,
+    tx_buffer: SocketBuffer<'a>,
     last_check_time: Option<Instant>,
     closed_time: Option<Instant>,
 
@@ -44,15 +45,16 @@ pub struct Socket<'a> {
 
 impl<'a> Socket<'a> {
     /// Create an UDP socket with the given buffers.
-    pub fn new(socket_id: u8, rx_buffer: impl Into<SocketBuffer<'a>>) -> Socket<'a> {
+    pub fn new(rx_buffer: impl Into<SocketBuffer<'a>>, tx_buffer: impl Into<SocketBuffer<'a>>) -> Socket<'a> {
         Socket {
-            handle: SocketHandle(socket_id),
+            device_handle: None,
             check_interval: Duration::from_secs(15),
             state: State::Closed,
             read_timeout: Some(Duration::from_secs(15)),
             endpoint: None,
             available_data: 0,
             rx_buffer: rx_buffer.into(),
+            tx_buffer: tx_buffer.into(),
             last_check_time: None,
             closed_time: None,
             #[cfg(feature = "async")]
@@ -63,17 +65,17 @@ impl<'a> Socket<'a> {
     }
 
     /// Return the socket handle.
-    pub fn handle(&self) -> SocketHandle {
-        self.handle
+    pub fn device_handle(&self) -> PeerHandle {
+        self.device_handle.unwrap()
     }
 
-    pub fn update_handle(&mut self, handle: SocketHandle) {
+    pub fn set_device_handle(&mut self, handle: PeerHandle) {
         debug!(
             "[UDP Socket] [{:?}] Updating handle {:?}",
-            self.handle(),
+            self.device_handle(),
             handle
         );
-        self.handle = handle;
+        self.device_handle.replace(handle);
     }
 
     /// Register a waker for receive operations.
@@ -124,7 +126,7 @@ impl<'a> Socket<'a> {
     pub fn set_state(&mut self, state: State) {
         debug!(
             "[UDP Socket] {:?}, state change: {:?} -> {:?}",
-            self.handle(),
+            self.device_handle(),
             self.state,
             state
         );
@@ -289,8 +291,8 @@ impl<'a> Socket<'a> {
 }
 
 #[cfg(feature = "defmt")]
-impl<const L: usize> defmt::Format for Socket<L> {
+impl<'a> defmt::Format for Socket<'a> {
     fn format(&self, fmt: defmt::Formatter) {
-        defmt::write!(fmt, "[{:?}, {:?}],", self.handle(), self.state())
+        defmt::write!(fmt, "[{:?}, {:?}],", self.device_handle(), self.state())
     }
 }
