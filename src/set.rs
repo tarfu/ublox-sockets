@@ -1,7 +1,6 @@
 use crate::meta::Meta;
 
 use super::{AnySocket, Socket};
-use atat::atat_derive::AtatLen;
 use serde::{Deserialize, Serialize};
 
 /// A handle, identifying a socket in a set.
@@ -12,7 +11,6 @@ use serde::{Deserialize, Serialize};
     PartialEq,
     Eq,
     PartialOrd,
-    AtatLen,
     Ord,
     hash32_derive::Hash32,
     Default,
@@ -29,7 +27,6 @@ pub struct SocketHandle(pub u8);
     PartialEq,
     Eq,
     PartialOrd,
-    AtatLen,
     Ord,
     hash32_derive::Hash32,
     Default,
@@ -47,7 +44,6 @@ pub struct PeerHandle(pub u8);
     PartialEq,
     Eq,
     PartialOrd,
-    AtatLen,
     Ord,
     hash32_derive::Hash32,
     Default,
