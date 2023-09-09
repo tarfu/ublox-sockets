@@ -4,6 +4,7 @@ use heapless::Vec;
 use serde::{Deserialize, Serialize};
 
 /// A handle, identifying a socket in a set.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(
     Debug,
     Clone,
@@ -18,7 +19,6 @@ use serde::{Deserialize, Serialize};
     Serialize,
     Deserialize,
 )]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Handle(pub u8);
 
 /// An extensible set of sockets.
