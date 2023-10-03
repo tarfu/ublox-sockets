@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
     PartialEq,
     Eq,
     PartialOrd,
-    AtatLen,
     Ord,
     hash32_derive::Hash32,
     Default,
@@ -20,6 +19,11 @@ use serde::{Deserialize, Serialize};
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Handle(pub u8);
+
+// Implement AtatLen with 1 as the ublox module only support 0-9
+impl atat::AtatLen for Handle {
+    const LEN: usize = 1;
+}
 
 /// An extensible set of sockets.
 #[derive(Default, Debug)]
