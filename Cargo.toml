@@ -18,7 +18,7 @@ serde = { version = "^1", default-features = false, features = ["derive"] }
 heapless = { version = "^0.7", features = ["serde"] }
 no-std-net = { version = "^0.5", features = ["serde"] }
 #atat = { version = "0.19", features = ["derive"] }
-atat = { git = "https://github.com/BlackbirdHQ/atat", rev = "c5caaf7", features = [
+atat = { git = "https://github.com/BlackbirdHQ/atat", rev = "31a45fc", features = [
     "derive",
     "bytes",
 ] }
