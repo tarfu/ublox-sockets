@@ -78,7 +78,6 @@ pub struct SocketSet<'a> {
 impl<'a> SocketSet<'a> {
     /// Create a socket set using the provided storage.
     pub fn new(sockets: &'a mut [SocketStorage<'a>]) -> SocketSet<'a> {
-        let sockets = sockets.into();
         SocketSet { sockets }
     }
 
