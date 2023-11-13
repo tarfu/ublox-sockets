@@ -113,6 +113,7 @@ pub struct Socket<'a> {
     tx_waker: crate::waker::WakerRegistration,
 }
 
+#[cfg(feature = "defmt")]
 impl<'a> defmt::Format for Socket<'a> {
     fn format(&self, fmt: defmt::Formatter) {
         #[cfg(feature = "edm")]
@@ -120,16 +121,15 @@ impl<'a> defmt::Format for Socket<'a> {
         #[cfg(not(feature = "edm"))]
         let edm_chan = "N/A";
 
-
         defmt::write!(
-                fmt,
-                "{{ peer_handle: {}, edm_channel: {}, state: {}, remote_endpoint: {}, local_port: {}}}",
-                self.peer_handle,
-                edm_chan,
-                self.state,
-                defmt::Debug2Format(&self.remote_endpoint),
-                self.local_port
-            )
+            fmt,
+            "{{ peer_handle: {}, edm_channel: {}, state: {}, remote_endpoint: {}, local_port: {}}}",
+            self.peer_handle,
+            edm_chan,
+            self.state,
+            defmt::Debug2Format(&self.remote_endpoint),
+            self.local_port
+        )
     }
 }
 
@@ -588,7 +588,7 @@ impl<'a> Socket<'a> {
         let n = self.rx_buffer.enqueue_slice(data);
         self.remote_last_ts = Some(Instant::now());
         if n > 0 {
-            defmt::trace!("[{}] Enqueued {:?} bytes to RX buffer", self.peer_handle, n);
+            trace!("[{}] Enqueued {:?} bytes to RX buffer", self.peer_handle, n);
             #[cfg(feature = "async")]
             self.rx_waker.wake();
         }
@@ -601,7 +601,7 @@ impl<'a> Socket<'a> {
     {
         let (n, res) = self.tx_buffer.dequeue_many_with(f);
         if n > 0 {
-            defmt::trace!(
+            trace!(
                 "[{}] Dequeued {:?} bytes from TX buffer",
                 self.peer_handle,
                 n
@@ -622,7 +622,7 @@ impl<'a> Socket<'a> {
     {
         let (n, res) = self.tx_buffer.async_dequeue_many_with(f).await;
         if n > 0 {
-            defmt::trace!(
+            trace!(
                 "[{}] Dequeued {:?} bytes from TX buffer",
                 self.peer_handle,
                 n
@@ -636,12 +636,18 @@ impl<'a> Socket<'a> {
     }
 
     pub fn set_state(&mut self, state: State) {
+        #[cfg(feature = "defmt")]
         debug!(
             "[TCP Socket {}] [{:?}] state change: {:?} -> {:?}",
             defmt::Debug2Format(&self.remote_endpoint),
             self.peer_handle,
             self.state,
             state
+        );
+        #[cfg(not(feature = "defmt"))]
+        debug!(
+            "[TCP Socket {}] [{:?}] state change: {:?} -> {:?}",
+            &self.remote_endpoint, self.peer_handle, self.state, state
         );
         match state {
             State::TimeWait => {

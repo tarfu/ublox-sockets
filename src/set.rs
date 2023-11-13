@@ -5,50 +5,20 @@ use serde::{Deserialize, Serialize};
 
 /// A handle, identifying a socket in a set.
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    hash32_derive::Hash32,
-    Default,
-    Serialize,
-    Deserialize,
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SocketHandle(pub u8);
 
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    hash32_derive::Hash32,
-    Default,
-    Serialize,
-    Deserialize,
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PeerHandle(pub u8);
 
 #[cfg(feature = "edm")]
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    hash32_derive::Hash32,
-    Default,
-    Serialize,
-    Deserialize,
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ChannelId(pub u8);
@@ -186,6 +156,7 @@ impl<'a> defmt::Format for SocketSet<'a> {
 mod tests {
     use super::*;
     use crate::{tcp, udp};
+    use core::any::Any;
 
     #[test]
     fn add_socket() {
@@ -226,12 +197,33 @@ mod tests {
         );
         assert_eq!(set.iter().count(), 2);
 
-        // assert!(set.remove(SocketHandle(0)));
+        set.remove(SocketHandle(0));
         assert_eq!(set.iter().count(), 1);
-
-        // assert!(set.get::<tcp::Socket>(SocketHandle(0)).is_err());
-
         set.get::<udp::Socket>(SocketHandle(1));
+    }
+
+    #[test]
+    #[should_panic]
+    fn remove_non_existing_socket() {
+        let mut sockets = [SocketStorage::EMPTY; 2];
+        let mut set = SocketSet::new(&mut sockets);
+
+        let mut tcp_rx_buf = [0u8; 64];
+        let mut udp_rx_buf = [0u8; 48];
+
+        assert_eq!(
+            set.add(tcp::Socket::new(&mut tcp_rx_buf[..], &mut [][..])),
+            SocketHandle(0)
+        );
+        assert_eq!(set.iter().count(), 1);
+        assert_eq!(
+            set.add(udp::Socket::new(&mut udp_rx_buf[..], &mut [][..])),
+            SocketHandle(1)
+        );
+        assert_eq!(set.iter().count(), 2);
+
+        set.remove(SocketHandle(0));
+        set.get::<udp::Socket>(SocketHandle(0));
     }
 
     #[test]
@@ -359,6 +351,8 @@ mod tests {
         );
         assert_eq!(set.iter().count(), 2);
 
+        set.remove(SocketHandle(0));
+
         assert_eq!(set.iter().count(), 1);
 
         set.get::<udp::Socket>(SocketHandle(1));
@@ -393,6 +387,6 @@ mod tests {
 
         set.get::<tcp::Socket>(SocketHandle(0));
 
-        assert_eq!(set.iter().count(), 0);
+        assert_eq!(set.iter().count(), 2);
     }
 }
