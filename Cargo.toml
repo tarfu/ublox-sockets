@@ -23,6 +23,8 @@ atat = { git = "https://github.com/BlackbirdHQ/atat", rev = "38e0322", features 
 ] }
 embassy-time = "0.2"
 
+no-std-net = { version = "0.6", features = ["serde"] }
+
 log = { version = "^0.4", default-features = false, optional = true }
 defmt = { version = "^0.3", optional = true }
 
@@ -31,3 +33,6 @@ default = ["socket-udp", "socket-tcp"]
 
 socket-tcp = []
 socket-udp = []
+
+[patch.crates-io]
+no-std-net = { git = "https://github.com/rushmorem/no-std-net", branch = "issue-15" }

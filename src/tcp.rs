@@ -1,4 +1,4 @@
-use core::net::SocketAddr;
+use no_std_net::SocketAddr;
 
 use super::{Error, Result, RingBuffer, Socket, SocketHandle, SocketMeta};
 use embassy_time::{Duration, Instant};
